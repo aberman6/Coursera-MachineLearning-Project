@@ -1,0 +1,125 @@
+---
+title: "Practical Machine Learning Course Project"
+author: "Anna Berman"
+date: "April 18, 2017"
+output:
+  html_document: default
+  pdf_document: default
+---
+##Background
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement - a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, your goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. More information is available from the website here: http://groupware.les.inf.puc-rio.br/har (see the section on the Weight Lifting Exercise Dataset).
+
+##Data and sourcing
+
+The training data for this project are available here: https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv
+
+The test data are available here: https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv
+
+The data for this project come from this source: http://groupware.les.inf.puc-rio.br/har. My special thanks to the above mentioned authors for being so generous in allowing their data to be used for this kind of assignment.
+
+
+##Setting up the environment
+First, we download the datasets and necessary analysis libraries.
+```{r setup, warning = FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(caret)
+library(randomForest)
+library(corrplot)
+library(rpart)
+library(rpart.plot)
+library(rattle)
+
+set.seed(125)
+
+trainData <- read.csv("~/pml-training.csv")
+testData <- read.csv("~/pml-testing.csv")
+
+```
+
+Next we partition the training dataset further into a training and testing set. 
+```{r environment}
+inTrain <- createDataPartition(y = trainData$classe, p = .7, list = FALSE)
+training <- trainData[inTrain,]
+testing <- trainData[-inTrain,]
+dim(training)
+dim(testing)
+```
+
+
+##Cleaning the data
+Before we build our model we remove variables that are mostly NA, have near zero variance (NZV), and those that are ID variables.
+
+```{r cleaning}
+#removing variables with near zero variance
+nzv <- nearZeroVar(training)
+training <- training[, -nzv]
+testing <- testing[, -nzv]
+
+#removing variables that are more than 90% NA
+mostlyNA <- sapply(training, function(x) mean(is.na(x))) > 0.9
+training <- training[, mostlyNA == FALSE]
+testing <- testing[, mostlyNA == FALSE]
+
+# remove identification only variables (columns 1 to 5)
+training <- training [, -(1:5)]
+testing <- testing[, -(1:5)]
+```
+
+The cleaning process narrows down the number of variables in our training and testing datasets from 180 to 54. 
+
+#Exploring the data
+Before we build our model, we need to be sure that there isn't a strong correlation between many of the variables.
+
+```{r exploration}
+corMatrix <- cor(training[, -54])
+corrplot(corMatrix, order = "FPC", method = "color", type = "lower", 
+         tl.cex = 0.8, tl.col = rgb(0, 0, 0))
+```
+
+The highly correlated variables are shown in dark colors in the chart above. Principal Components Analysis (PCA) is a way to pre-process the data to make a more compact analysis. Given the lack of strong correlation between most of the variable, we will not perform PCA in the following analysis. 
+
+
+##Fitting a model
+We are ready to fit a model to our training dataset. Below we train with three methods, recurrsive paritioning, linear discriminant analysis, and random forests. The outputs show the 20 most predictive variables in each model.
+```{r model fit}
+set.seed(125)
+#Recursive partitioning regression tree modeling
+modfit1 <- train(classe ~ ., method = "rpart", data = training)
+fancyRpartPlot(modfit1$finalModel, cex = .5, main = "Recursive Partitioning Model")
+varImp(modfit1)
+
+#Linear discriminant analysis modeling
+modfit2 <- train(classe ~ ., method = "lda", data = training)
+varImp(modfit2)
+
+#Random forest modeling
+modfit3 <- randomForest(classe ~ ., training, ntree = 60)
+varImp(modfit3)
+plot(modfit3, main = "Random Forest Model")
+```
+From our models, no consistent set of variables appears to achieve high predictability.
+
+
+#Assessing model accuracy
+To select our final model, we use confusion matrices to determine the prediction accuracy of each model on our oaritioned testing test.
+```{r accuracy}
+set.seed(233)
+#compare classificiation accuracy on our testing set
+#Recurrive partitioning regression tree model
+confusionMatrix(predict(modfit1, testing), testing$classe)$overall['Accuracy']
+
+#Linear discriminant analysis model
+confusionMatrix(predict(modfit2, testing), testing$classe)$overall['Accuracy']
+
+#Random forest model
+confusionMatrix(predict(modfit3, testing), testing$classe)$overall['Accuracy']
+
+```
+Our analysis shows that our random forest model has the hightest prediction accuracy with 99.75%. With our random forest model, our expected out of sample error rate is 0.25%. We select the random forest model as our final model. 
+
+#Predicting final test set
+Finally, we apply our random forest model to our final test set. 
+```{r final pred}
+set.seed(255)
+predict(modfit3, testData)
+```
